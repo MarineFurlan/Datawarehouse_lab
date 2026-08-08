@@ -1,0 +1,13 @@
+oei_dbt_lab:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('DBT_PROJECT', 'oei-data-platform-lab-dev') }}"
+      dataset: "{{ env_var('DBT_DATASET', 'oei_staging') }}"
+      location: "{{ env_var('DBT_LOCATION', 'europe-west9') }}"
+      threads: 4
+      priority: interactive
+      job_execution_timeout_seconds: 300
+      job_retries: 1

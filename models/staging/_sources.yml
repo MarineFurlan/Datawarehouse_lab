@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: oei_einvoice
+    description: Raw PostgreSQL data replicated by Datastream
+    database: oei-data-platform-lab-dev
+    schema: oei_einvoice
+    tables:
+      - name: orders
+        identifier: public_orders
+        description: Raw orders replicated from public.orders

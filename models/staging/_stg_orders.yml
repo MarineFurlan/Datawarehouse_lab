@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: stg_orders
+    description: Cleaned and standardized orders from the landing dataset
+    columns:
+      - name: order_id
+        description: Unique order identifier
+        data_tests:
+          - not_null
+          - unique
+
+      - name: customer_name
+        description: Customer name with surrounding whitespace removed
+        data_tests:
+          - not_null
+
+      - name: order_status
+        description: Normalized lowercase order status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - pending
+                  - paid
+
+      - name: amount
+        description: Order amount
+        data_tests:
+          - not_null
+
+      - name: created_at
+        description: Source creation timestamp
+
+      - name: updated_at
+        description: Source update timestamp

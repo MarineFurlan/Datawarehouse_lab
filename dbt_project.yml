@@ -1,0 +1,17 @@
+name: oei_dbt_lab
+version: 1.0.0
+config-version: 2
+
+profile: oei_dbt_lab
+
+model-paths:
+  - models
+
+clean-targets:
+  - target
+  - dbt_packages
+
+models:
+  oei_dbt_lab:
+    staging:
+      +materialized: view
