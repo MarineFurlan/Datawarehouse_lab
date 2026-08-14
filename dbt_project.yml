@@ -15,3 +15,12 @@ models:
   oei_dbt_lab:
     staging:
       +materialized: view
+
+    marts:
+      oei:
+        +materialized: table
+        +schema: oei_mart
+
+      osre:
+        +materialized: table
+        +schema: osre_mart

@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: orders
+    description: Business-ready OEI order table built from cleaned staging data
+
+    columns:
+      - name: order_id
+        description: Unique order identifier
+        data_tests:
+          - not_null
+          - unique
+
+      - name: customer_name
+        description: Cleaned customer name
+        data_tests:
+          - not_null
+
+      - name: order_status
+        description: Normalized business order status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - pending
+                  - paid
+
+      - name: amount
+        description: Full order amount
+        data_tests:
+          - not_null
+
+      - name: order_date
+        description: Calendar date on which the order was created
+        data_tests:
+          - not_null
+
+      - name: is_paid
+        description: True when the order has been paid
+        data_tests:
+          - not_null
+
+      - name: paid_amount
+        description: Amount recognized as paid
+        data_tests:
+          - not_null
+
+      - name: pending_amount
+        description: Amount still pending
+        data_tests:
+          - not_null
