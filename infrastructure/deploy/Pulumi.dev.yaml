@@ -1,0 +1,3 @@
+config:
+  gcp:project: oei-data-platform-lab-dev
+  gcp:region: europe-west9

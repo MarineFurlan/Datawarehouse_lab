@@ -1,0 +1,4 @@
+config:
+  gcp:project: oei-data-platform-lab-dev
+  gcp:region: europe-west9
+  oei-platform-runtime:deployStack: MarineFurlan/oei-platform-deploy/dev

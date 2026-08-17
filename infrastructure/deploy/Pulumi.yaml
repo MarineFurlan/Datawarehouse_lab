@@ -1,0 +1,11 @@
+name: oei-platform-deploy
+description: Stable infrastructure for the OEI data platform
+runtime:
+  name: python
+  options:
+    toolchain: pip
+    virtualenv: venv
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: python
