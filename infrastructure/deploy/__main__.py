@@ -63,6 +63,26 @@ composer_service_account = gcp.serviceaccount.Account(
     ),
 )
 
+# The landing and staging permissions predate Pulumi and are preserved through
+# ignore_changes. These mart grants complete the permissions required by dbt.
+mart_writer_accesses = {}
+
+for dataset_id in ("oei_mart", "osre_mart"):
+    mart_writer_accesses[dataset_id] = gcp.bigquery.DatasetAccess(
+        f"{dataset_id}-composer-writer",
+        project=project,
+        dataset_id=datasets[dataset_id].dataset_id,
+        role="WRITER",
+        user_by_email=composer_service_account.email,
+        opts=pulumi.ResourceOptions(
+            protect=True,
+            depends_on=[
+                datasets[dataset_id],
+                composer_service_account,
+            ],
+        ),
+    )
+
 pulumi.export(
     "datasetIds",
     {name: dataset.dataset_id for name, dataset in datasets.items()},
