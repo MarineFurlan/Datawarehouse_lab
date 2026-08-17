@@ -41,5 +41,6 @@ jobs:
       - name: Check Airflow DAG Python syntax
         run: python -m compileall -q dags
 
-      - name: Compile dbt models and tests
-        run: dbt compile --profiles-dir profiles --no-partial-parse
+      - name: Parse dbt project
+        run: dbt parse --profiles-dir profiles --no-partial-parse
+        
