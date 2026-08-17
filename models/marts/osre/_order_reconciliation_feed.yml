@@ -1,0 +1,42 @@
+version: 2
+
+models:
+  - name: order_reconciliation_feed
+    description: Operational order feed prepared for OSRE reconciliation
+
+    columns:
+      - name: order_id
+        description: Unique order identifier
+        data_tests:
+          - not_null
+          - unique
+
+      - name: amount
+        description: Order amount to reconcile
+        data_tests:
+          - not_null
+
+      - name: source_order_status
+        description: Normalized status received from staging
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - pending
+                  - paid
+
+      - name: reconciliation_status
+        description: OSRE processing state derived from the order status
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - waiting_for_payment
+                  - ready_for_reconciliation
+
+      - name: source_updated_at
+        description: Time of the latest source update
+        data_tests:
+          - not_null

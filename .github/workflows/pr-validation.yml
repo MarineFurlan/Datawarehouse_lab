@@ -1,0 +1,46 @@
+name: PR validation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validation-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate dbt and Airflow
+    runs-on: ubuntu-slim
+    timeout-minutes: 12
+
+    env:
+      DBT_PROJECT: oei-data-platform-lab-dev
+      DBT_DATASET: oei_staging
+      DBT_LOCATION: europe-west9
+      DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install pinned dbt dependencies
+        run: python -m pip install --disable-pip-version-check --requirement requirements.txt
+
+      - name: Check Airflow DAG Python syntax
+        run: python -m compileall -q dags
+
+      - name: Parse dbt project
+        run: dbt parse --profiles-dir profiles --no-partial-parse
+        
