@@ -63,6 +63,50 @@ composer_service_account = gcp.serviceaccount.Account(
     ),
 )
 
+composer_member = (
+    f"serviceAccount:oei-composer-sa@{project}.iam.gserviceaccount.com"
+)
+
+composer_project_roles = {
+    "bigquery-job-user": "roles/bigquery.jobUser",
+    "worker": "roles/composer.worker",
+}
+
+composer_project_role_members = {}
+
+for grant_name, role in composer_project_roles.items():
+    composer_project_role_members[grant_name] = gcp.projects.IAMMember(
+        f"oei-composer-{grant_name}",
+        project=project,
+        role=role,
+        member=composer_member,
+        opts=pulumi.ResourceOptions(
+            import_=f"{project} {role} {composer_member}",
+            protect=True,
+            depends_on=[composer_service_account],
+        ),
+    )
+
+composer_artifact_reader = gcp.artifactregistry.RepositoryIamMember(
+    "oei-dbt-images-composer-reader",
+    project=project,
+    location=region,
+    repository=dbt_repository.repository_id,
+    role="roles/artifactregistry.reader",
+    member=composer_member,
+    opts=pulumi.ResourceOptions(
+        import_=(
+            f"projects/{project}/locations/{region}/repositories/"
+            f"oei-dbt-images roles/artifactregistry.reader {composer_member}"
+        ),
+        protect=True,
+        depends_on=[
+            dbt_repository,
+            composer_service_account,
+        ],
+    ),
+)
+
 # The landing and staging permissions predate Pulumi and are preserved through
 # ignore_changes. These mart grants complete the permissions required by dbt.
 mart_writer_accesses = {}
