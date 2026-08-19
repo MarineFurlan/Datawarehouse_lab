@@ -1,0 +1,79 @@
+name: Pulumi preview
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - infrastructure/**
+      - .github/workflows/pulumi-preview.yml
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: pulumi-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Preview ${{ matrix.name }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: deploy
+            project: infrastructure/deploy
+            stack: MarineFurlan/oei-platform-deploy/dev
+          - name: runtime
+            project: infrastructure/runtime
+            stack: MarineFurlan/oei-platform-runtime/dev
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ${{ matrix.project }}/requirements.txt
+
+      - name: Install Pulumi dependencies
+        working-directory: ${{ matrix.project }}
+        run: >-
+          python -m pip install
+          --disable-pip-version-check
+          --requirement requirements.txt
+
+      - name: Authenticate with Pulumi Cloud
+        uses: pulumi/auth-actions@v2
+        with:
+          organization: MarineFurlan
+          requested-token-type: urn:pulumi:token-type:access_token:personal
+          scope: user:MarineFurlan
+
+      - name: Authenticate with Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: oei-data-platform-lab-dev
+          workload_identity_provider: >-
+            projects/119684428766/locations/global/workloadIdentityPools/oei-github-actions/providers/oei-dbt-lab
+          service_account: >-
+            oei-github-preview@oei-data-platform-lab-dev.iam.gserviceaccount.com
+
+      - name: Preview Pulumi stack
+        uses: pulumi/actions@v7
+        with:
+          command: preview
+          stack-name: ${{ matrix.stack }}
+          work-dir: ${{ matrix.project }}
+          refresh: true
+          comment-on-summary: true
+          suppress-outputs: true
+          color: never

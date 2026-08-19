@@ -11,3 +11,4 @@ __pycache__/
 *credentials*.json
 *service-account*.json
 profiles/.user.yml
+gha-creds-*.json
