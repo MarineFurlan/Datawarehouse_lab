@@ -5,3 +5,4 @@ dbt_packages
 .git
 __pycache__
 *.pyc
+gha-creds-*.json
