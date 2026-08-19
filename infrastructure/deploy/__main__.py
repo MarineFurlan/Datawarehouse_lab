@@ -191,6 +191,124 @@ postgres_instance = gcp.sql.DatabaseInstance(
     ),
 )
 
+# GitHub Actions authenticates without stored GCP keys. The immutable numeric
+# IDs prevent a renamed or recreated repository from inheriting this trust.
+github_repository_id = "1328145264"
+github_repository_owner_id = "34574120"
+
+sts_api = gcp.projects.Service(
+    "sts-api",
+    project=project,
+    service="sts.googleapis.com",
+    disable_on_destroy=False,
+    opts=pulumi.ResourceOptions(
+        protect=True,
+    ),
+)
+
+github_preview_service_account = gcp.serviceaccount.Account(
+    "oei-github-preview",
+    account_id="oei-github-preview",
+    project=project,
+    display_name="OEI GitHub preview",
+    description="Read-only identity for GitHub Actions Pulumi previews",
+    opts=pulumi.ResourceOptions(
+        protect=True,
+    ),
+)
+
+github_identity_pool = gcp.iam.WorkloadIdentityPool(
+    "oei-github-actions",
+    workload_identity_pool_id="oei-github-actions",
+    project=project,
+    display_name="OEI GitHub Actions",
+    description="Federates GitHub Actions identities for OEI CI",
+    disabled=False,
+    opts=pulumi.ResourceOptions(
+        protect=True,
+        depends_on=[sts_api],
+    ),
+)
+
+github_identity_provider = gcp.iam.WorkloadIdentityPoolProvider(
+    "oei-dbt-lab",
+    workload_identity_pool_id=github_identity_pool.workload_identity_pool_id,
+    workload_identity_pool_provider_id="oei-dbt-lab",
+    project=project,
+    display_name="OEI dbt lab",
+    description="GitHub OIDC provider for the OEI dbt lab repository",
+    disabled=False,
+    attribute_mapping={
+        "google.subject": "assertion.sub",
+        "attribute.repository": "assertion.repository",
+        "attribute.repository_id": "assertion.repository_id",
+        "attribute.repository_owner_id": "assertion.repository_owner_id",
+    },
+    attribute_condition=(
+        f'assertion.repository_owner_id == "{github_repository_owner_id}" && '
+        f'assertion.repository_id == "{github_repository_id}"'
+    ),
+    oidc={
+        "issuer_uri": "https://token.actions.githubusercontent.com",
+    },
+    opts=pulumi.ResourceOptions(
+        protect=True,
+        depends_on=[github_identity_pool],
+    ),
+)
+
+github_workload_identity_member = github_identity_pool.name.apply(
+    lambda pool_name: (
+        f"principalSet://iam.googleapis.com/{pool_name}"
+        f"/attribute.repository_id/{github_repository_id}"
+    )
+)
+
+github_preview_identity_user = gcp.serviceaccount.IAMMember(
+    "oei-github-preview-workload-identity-user",
+    service_account_id=github_preview_service_account.name,
+    role="roles/iam.workloadIdentityUser",
+    member=github_workload_identity_member,
+    opts=pulumi.ResourceOptions(
+        protect=True,
+        depends_on=[
+            github_identity_provider,
+            github_preview_service_account,
+        ],
+    ),
+)
+
+github_preview_member = github_preview_service_account.email.apply(
+    lambda email: f"serviceAccount:{email}"
+)
+
+github_preview_roles = {
+    "artifact-reader": "roles/artifactregistry.reader",
+    "bigquery-metadata-viewer": "roles/bigquery.metadataViewer",
+    "cloudsql-viewer": "roles/cloudsql.viewer",
+    "datastream-viewer": "roles/datastream.viewer",
+    "security-reviewer": "roles/iam.securityReviewer",
+    "service-account-viewer": "roles/iam.serviceAccountViewer",
+    "workload-identity-pool-viewer": (
+        "roles/iam.workloadIdentityPoolViewer"
+    ),
+    "service-usage-viewer": "roles/serviceusage.serviceUsageViewer",
+}
+
+github_preview_role_members = {}
+
+for grant_name, role in github_preview_roles.items():
+    github_preview_role_members[grant_name] = gcp.projects.IAMMember(
+        f"oei-github-preview-{grant_name}",
+        project=project,
+        role=role,
+        member=github_preview_member,
+        opts=pulumi.ResourceOptions(
+            protect=True,
+            depends_on=[github_preview_service_account],
+        ),
+    )
+
 pulumi.export("postgresInstanceName", postgres_instance.name)
 pulumi.export(
     "datasetIds",
@@ -198,3 +316,11 @@ pulumi.export(
 )
 pulumi.export("dbtRepositoryName", dbt_repository.name)
 pulumi.export("composerServiceAccountEmail", composer_service_account.email)
+pulumi.export(
+    "githubWorkloadIdentityProvider",
+    github_identity_provider.name,
+)
+pulumi.export(
+    "githubPreviewServiceAccountEmail",
+    github_preview_service_account.email,
+)
