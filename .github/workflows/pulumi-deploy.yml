@@ -1,0 +1,122 @@
+name: Pulumi deployment
+
+run-name: Deploy ${{ inputs.target }} to dev by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Pulumi project to deploy
+        required: true
+        type: choice
+        options:
+          - deploy
+          - runtime
+      confirmation:
+        description: Type APPLY to authorize the deployment
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: pulumi-deployment-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.target }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 30
+
+    steps:
+      - name: Validate deployment request
+        env:
+          DEPLOYMENT_REF: ${{ github.ref }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [[ "$DEPLOYMENT_REF" != "refs/heads/main" ]]; then
+            echo "Deployments are restricted to main."
+            exit 1
+          fi
+
+          if [[ "$CONFIRMATION" != "APPLY" ]]; then
+            echo "Confirmation must be exactly APPLY."
+            exit 1
+          fi
+
+      - name: Resolve deployment target
+        id: target
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          case "$TARGET" in
+            deploy)
+              echo "project=infrastructure/deploy" >> "$GITHUB_OUTPUT"
+              echo "stack=MarineFurlan/oei-platform-deploy/dev" >> "$GITHUB_OUTPUT"
+              ;;
+            runtime)
+              echo "project=infrastructure/runtime" >> "$GITHUB_OUTPUT"
+              echo "stack=MarineFurlan/oei-platform-runtime/dev" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported target: $TARGET"
+              exit 1
+              ;;
+          esac
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: >-
+            ${{ steps.target.outputs.project }}/requirements.txt
+
+      - name: Install Pulumi dependencies
+        working-directory: ${{ steps.target.outputs.project }}
+        run: >-
+          python -m pip install
+          --disable-pip-version-check
+          --requirement requirements.txt
+
+      - name: Check dependency compatibility
+        run: python -m pip check
+
+      - name: Authenticate with Pulumi Cloud
+        uses: pulumi/auth-actions@141415910c3beb54e03b48e9057c204c97b956f2 # v2
+        with:
+          organization: MarineFurlan
+          requested-token-type: urn:pulumi:token-type:access_token:personal
+          scope: user:MarineFurlan
+
+      - name: Authenticate with Google Cloud
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: oei-data-platform-lab-dev
+          workload_identity_provider: >-
+            projects/119684428766/locations/global/workloadIdentityPools/oei-github-deploy/providers/oei-dbt-lab-main
+          service_account: >-
+            oei-github-deploy@oei-data-platform-lab-dev.iam.gserviceaccount.com
+
+      - name: Apply Pulumi stack
+        uses: pulumi/actions@8e5e406f4007fca908480587cb9893c07090f58d # v7
+        with:
+          command: up
+          stack-name: ${{ steps.target.outputs.stack }}
+          work-dir: ${{ steps.target.outputs.project }}
+          pulumi-version: "3.257.0"
+          refresh: true
+          diff: true
+          parallel: 1
+          comment-on-summary: true
+          suppress-outputs: true
+          suppress-progress: true
+          color: never

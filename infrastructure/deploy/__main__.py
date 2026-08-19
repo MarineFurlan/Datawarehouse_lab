@@ -309,6 +309,133 @@ for grant_name, role in github_preview_roles.items():
         ),
     )
 
+# Deployments use a separate identity pool and service account from previews.
+# Only workflow_dispatch runs from the immutable main-branch subject can
+# exchange a GitHub token for this write-capable identity.
+github_deployment_subject = (
+    f"repo:MarineFurlan@{github_repository_owner_id}/"
+    f"oei-dbt-lab@{github_repository_id}:ref:refs/heads/main"
+)
+
+github_deployment_actor_id = "34574120"
+github_deployment_workflow_ref = (
+    "MarineFurlan/oei-dbt-lab/.github/workflows/"
+    "pulumi-deploy.yml@refs/heads/main"
+)
+
+github_deployment_service_account = gcp.serviceaccount.Account(
+    "oei-github-deploy",
+    account_id="oei-github-deploy",
+    project=project,
+    display_name="OEI GitHub deployment",
+    description="Identity for approved Pulumi deployments from main",
+    opts=pulumi.ResourceOptions(
+        protect=True,
+    ),
+)
+
+github_deployment_pool = gcp.iam.WorkloadIdentityPool(
+    "oei-github-deploy",
+    workload_identity_pool_id="oei-github-deploy",
+    project=project,
+    display_name="OEI GitHub deployment",
+    description="Trust domain for Pulumi deployments from main",
+    disabled=False,
+    opts=pulumi.ResourceOptions(
+        protect=True,
+        depends_on=[sts_api],
+    ),
+)
+
+github_deployment_provider = gcp.iam.WorkloadIdentityPoolProvider(
+    "oei-dbt-lab-main",
+    workload_identity_pool_id=(
+        github_deployment_pool.workload_identity_pool_id
+    ),
+    workload_identity_pool_provider_id="oei-dbt-lab-main",
+    project=project,
+    display_name="OEI dbt lab main",
+    description="GitHub OIDC provider restricted to the main branch",
+    disabled=False,
+    attribute_mapping={
+        "google.subject": "assertion.sub",
+        "attribute.repository_id": "assertion.repository_id",
+        "attribute.repository_owner_id": "assertion.repository_owner_id",
+    },
+    attribute_condition=(
+        f'assertion.repository_owner_id == "{github_repository_owner_id}" && '
+        f'assertion.repository_id == "{github_repository_id}" && '
+        f'assertion.actor_id == "{github_deployment_actor_id}" && '
+        'assertion.event_name == "workflow_dispatch" && '
+        f'assertion.workflow_ref == "{github_deployment_workflow_ref}" && '
+        f'assertion.sub == "{github_deployment_subject}"'
+    ),
+    oidc={
+        "issuer_uri": "https://token.actions.githubusercontent.com",
+    },
+    opts=pulumi.ResourceOptions(
+        protect=True,
+        depends_on=[github_deployment_pool],
+    ),
+)
+
+github_deployment_workload_identity_member = (
+    github_deployment_pool.name.apply(
+        lambda pool_name: (
+            f"principalSet://iam.googleapis.com/{pool_name}"
+            f"/attribute.repository_id/{github_repository_id}"
+        )
+    )
+)
+
+github_deployment_identity_user = gcp.serviceaccount.IAMMember(
+    "oei-github-deploy-workload-identity-user",
+    service_account_id=github_deployment_service_account.name,
+    role="roles/iam.workloadIdentityUser",
+    member=github_deployment_workload_identity_member,
+    opts=pulumi.ResourceOptions(
+        protect=True,
+        depends_on=[
+            github_deployment_provider,
+            github_deployment_service_account,
+        ],
+    ),
+)
+
+github_deployment_member = github_deployment_service_account.email.apply(
+    lambda email: f"serviceAccount:{email}"
+)
+
+# These permissions correspond to the resource types managed by the deploy
+# and runtime stacks. Project IAM administration makes this a privileged
+# identity, so its OIDC trust is restricted to manual runs from main.
+github_deployment_roles = {
+    "artifact-admin": "roles/artifactregistry.admin",
+    "bigquery-admin": "roles/bigquery.admin",
+    "cloudsql-admin": "roles/cloudsql.admin",
+    "datastream-admin": "roles/datastream.admin",
+    "service-account-admin": "roles/iam.serviceAccountAdmin",
+    "workload-identity-pool-admin": (
+        "roles/iam.workloadIdentityPoolAdmin"
+    ),
+    "project-iam-admin": "roles/resourcemanager.projectIamAdmin",
+    "service-usage-admin": "roles/serviceusage.serviceUsageAdmin",
+}
+
+github_deployment_role_members = {}
+
+for grant_name, role in github_deployment_roles.items():
+    github_deployment_role_members[grant_name] = gcp.projects.IAMMember(
+        f"oei-github-deploy-{grant_name}",
+        project=project,
+        role=role,
+        member=github_deployment_member,
+        opts=pulumi.ResourceOptions(
+            protect=True,
+            depends_on=[github_deployment_service_account],
+        ),
+    )
+
 pulumi.export("postgresInstanceName", postgres_instance.name)
 pulumi.export(
     "datasetIds",
@@ -323,4 +450,12 @@ pulumi.export(
 pulumi.export(
     "githubPreviewServiceAccountEmail",
     github_preview_service_account.email,
+)
+pulumi.export(
+    "githubDeploymentWorkloadIdentityProvider",
+    github_deployment_provider.name,
+)
+pulumi.export(
+    "githubDeploymentServiceAccountEmail",
+    github_deployment_service_account.email,
 )
