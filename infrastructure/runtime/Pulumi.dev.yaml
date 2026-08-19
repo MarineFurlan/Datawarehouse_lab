@@ -1,0 +1,6 @@
+config:
+  gcp:project: oei-data-platform-lab-dev
+  gcp:region: europe-west9
+  oei-platform-runtime:deployStack: MarineFurlan/oei-platform-deploy/dev
+  oei-platform-runtime:postgresPassword:
+    secure: AAABAPNkmcluv82OLdLQ0bfNfRB3A/X552EsGwll9ouDrNo8IQ==
