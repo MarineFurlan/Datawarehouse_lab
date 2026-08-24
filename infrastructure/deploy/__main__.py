@@ -436,6 +436,134 @@ for grant_name, role in github_deployment_roles.items():
         ),
     )
 
+# dbt image publishing uses its own trust domain and a repository-scoped
+# Artifact Registry grant. It cannot impersonate the Pulumi deployment
+# identity or modify other GCP resources.
+github_image_publish_subject = (
+    f"repo:MarineFurlan@{github_repository_owner_id}/"
+    f"oei-dbt-lab@{github_repository_id}:ref:refs/heads/main"
+)
+
+github_image_publish_actor_id = "34574120"
+github_image_publish_workflow_ref = (
+    "MarineFurlan/oei-dbt-lab/.github/workflows/"
+    "dbt-image-publish.yml@refs/heads/main"
+)
+
+github_image_publisher_service_account = gcp.serviceaccount.Account(
+    "oei-github-dbt-publisher",
+    account_id="oei-github-dbt-publisher",
+    project=project,
+    display_name="OEI GitHub dbt publisher",
+    description="Publishes dbt images from GitHub Actions",
+    opts=pulumi.ResourceOptions(
+        protect=True,
+    ),
+)
+
+github_image_publisher_pool = gcp.iam.WorkloadIdentityPool(
+    "oei-github-dbt-publish",
+    workload_identity_pool_id="oei-github-dbt-publish",
+    project=project,
+    display_name="OEI GitHub dbt publishing",
+    description="Trust domain for dbt image publishing",
+    disabled=False,
+    opts=pulumi.ResourceOptions(
+        protect=True,
+        depends_on=[sts_api],
+    ),
+)
+
+github_image_publisher_provider = (
+    gcp.iam.WorkloadIdentityPoolProvider(
+        "oei-dbt-image-publish",
+        workload_identity_pool_id=(
+            github_image_publisher_pool.workload_identity_pool_id
+        ),
+        workload_identity_pool_provider_id="oei-dbt-image-publish",
+        project=project,
+        display_name="OEI dbt image publishing",
+        description="GitHub OIDC provider for publishing dbt images",
+        disabled=False,
+        attribute_mapping={
+            "google.subject": "assertion.sub",
+            "attribute.repository_id": "assertion.repository_id",
+            "attribute.repository_owner_id": (
+                "assertion.repository_owner_id"
+            ),
+        },
+        attribute_condition=(
+            f'assertion.repository_owner_id == "{github_repository_owner_id}" '
+            "&& "
+            f'assertion.repository_id == "{github_repository_id}" && '
+            f'assertion.workflow_ref == "{github_image_publish_workflow_ref}" '
+            "&& "
+            f'assertion.sub == "{github_image_publish_subject}" && '
+            "("
+            'assertion.event_name == "push" || '
+            "("
+            'assertion.event_name == "workflow_dispatch" && '
+            f'assertion.actor_id == "{github_image_publish_actor_id}"'
+            ")"
+            ")"
+        ),
+        oidc={
+            "issuer_uri": "https://token.actions.githubusercontent.com",
+        },
+        opts=pulumi.ResourceOptions(
+            protect=True,
+            depends_on=[github_image_publisher_pool],
+        ),
+    )
+)
+
+github_image_publisher_workload_identity_member = (
+    github_image_publisher_pool.name.apply(
+        lambda pool_name: (
+            f"principalSet://iam.googleapis.com/{pool_name}"
+            f"/attribute.repository_id/{github_repository_id}"
+        )
+    )
+)
+
+github_image_publisher_identity_user = gcp.serviceaccount.IAMMember(
+    "oei-github-dbt-publisher-workload-identity-user",
+    service_account_id=github_image_publisher_service_account.name,
+    role="roles/iam.workloadIdentityUser",
+    member=github_image_publisher_workload_identity_member,
+    opts=pulumi.ResourceOptions(
+        protect=True,
+        depends_on=[
+            github_image_publisher_provider,
+            github_image_publisher_service_account,
+        ],
+    ),
+)
+
+github_image_publisher_member = (
+    github_image_publisher_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    )
+)
+
+github_image_repository_writer = (
+    gcp.artifactregistry.RepositoryIamMember(
+        "oei-dbt-images-github-writer",
+        project=project,
+        location=region,
+        repository=dbt_repository.repository_id,
+        role="roles/artifactregistry.writer",
+        member=github_image_publisher_member,
+        opts=pulumi.ResourceOptions(
+            protect=True,
+            depends_on=[
+                dbt_repository,
+                github_image_publisher_service_account,
+            ],
+        ),
+    )
+)
+
 pulumi.export("postgresInstanceName", postgres_instance.name)
 pulumi.export(
     "datasetIds",
@@ -458,4 +586,12 @@ pulumi.export(
 pulumi.export(
     "githubDeploymentServiceAccountEmail",
     github_deployment_service_account.email,
+)
+pulumi.export(
+    "githubImagePublisherWorkloadIdentityProvider",
+    github_image_publisher_provider.name,
+)
+pulumi.export(
+    "githubImagePublisherServiceAccountEmail",
+    github_image_publisher_service_account.email,
 )

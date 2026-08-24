@@ -1,0 +1,128 @@
+name: Publish dbt image
+
+run-name: Publish dbt image from ${{ github.sha }} by @${{ github.actor }}
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - requirements.txt
+      - dbt_project.yml
+      - macros/**
+      - models/**
+      - tests/**
+      - profiles/profiles.yml
+      - .github/workflows/dbt-image-publish.yml
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type PUBLISH to authorize a manual image publication
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: dbt-image-publish-dev
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and publish dbt image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Validate publication request
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Image publication is restricted to main."
+            exit 1
+          fi
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]] &&
+             [[ "$CONFIRMATION" != "PUBLISH" ]]; then
+            echo "Confirmation must be exactly PUBLISH."
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Authenticate with Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          project_id: oei-data-platform-lab-dev
+          workload_identity_provider: >-
+            projects/119684428766/locations/global/workloadIdentityPools/oei-github-dbt-publish/providers/oei-dbt-image-publish
+          service_account: >-
+            oei-github-dbt-publisher@oei-data-platform-lab-dev.iam.gserviceaccount.com
+          token_format: access_token
+          access_token_lifetime: 900s
+          create_credentials_file: false
+
+      - name: Log in to Artifact Registry
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: |
+          printf '%s' "$ACCESS_TOKEN" |
+            docker login \
+              --username oauth2accesstoken \
+              --password-stdin \
+              europe-west9-docker.pkg.dev
+
+      - name: Build dbt image
+        env:
+          IMAGE: >-
+            europe-west9-docker.pkg.dev/oei-data-platform-lab-dev/oei-dbt-images/oei-dbt
+          TAG: sha-${{ github.sha }}
+        run: |
+          docker build \
+            --pull \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --tag "$IMAGE:$TAG" \
+            .
+
+      - name: Publish dbt image
+        id: publish
+        env:
+          IMAGE: >-
+            europe-west9-docker.pkg.dev/oei-data-platform-lab-dev/oei-dbt-images/oei-dbt
+          TAG: sha-${{ github.sha }}
+        run: |
+          docker push "$IMAGE:$TAG"
+
+          REFERENCE="$(
+            docker image inspect "$IMAGE:$TAG" \
+              --format '{{index .RepoDigests 0}}'
+          )"
+
+          if [[ "$REFERENCE" != "${IMAGE}@sha256:"* ]]; then
+            echo "Unable to resolve the published image digest."
+            exit 1
+          fi
+
+          echo "reference=$REFERENCE" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Published dbt image"
+            echo
+            echo "\`$REFERENCE\`"
+            echo
+            echo "Update the IMAGE digest in dags/oei_dbt_pipeline.py through a pull request."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Log out of Artifact Registry
+        if: always()
+        run: docker logout europe-west9-docker.pkg.dev
