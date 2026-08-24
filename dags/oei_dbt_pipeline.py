@@ -9,7 +9,7 @@ IMAGE = (
     "europe-west9-docker.pkg.dev/"
     "oei-data-platform-lab-dev/"
     "oei-dbt-images/oei-dbt"
-    "@sha256:d9b923d8fb77fdbb9ed50f834f160f7d17733e0bb4d23f1002fb4f04c25cc019"
+    "@sha256:6f75c3b53ac319fb6aa96996f20b341a76129efbb9812075913304a2ee0a7eab"
 )
 
 ENV_VARS = {
