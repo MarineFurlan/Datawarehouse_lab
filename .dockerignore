@@ -6,3 +6,10 @@ dbt_packages
 __pycache__
 *.pyc
 gha-creds-*.json
+.env
+.env.*
+*.pem
+*.key
+*credentials*.json
+*service-account*.json
+profiles/.user.yml
