@@ -206,6 +206,16 @@ sts_api = gcp.projects.Service(
     ),
 )
 
+composer_api = gcp.projects.Service(
+    "composer-api",
+    project=project,
+    service="composer.googleapis.com",
+    disable_on_destroy=False,
+    opts=pulumi.ResourceOptions(
+        protect=True,
+    ),
+)
+
 github_preview_service_account = gcp.serviceaccount.Account(
     "oei-github-preview",
     account_id="oei-github-preview",
@@ -293,6 +303,7 @@ github_preview_roles = {
         "roles/iam.workloadIdentityPoolViewer"
     ),
     "service-usage-viewer": "roles/serviceusage.serviceUsageViewer",
+    "composer-viewer": "roles/composer.viewer",
 }
 
 github_preview_role_members = {}
@@ -420,6 +431,7 @@ github_deployment_roles = {
     ),
     "project-iam-admin": "roles/resourcemanager.projectIamAdmin",
     "service-usage-admin": "roles/serviceusage.serviceUsageAdmin",
+    "composer-admin": "roles/composer.admin",
 }
 
 github_deployment_role_members = {}

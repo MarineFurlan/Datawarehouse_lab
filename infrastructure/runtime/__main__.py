@@ -10,6 +10,13 @@ runtime_config = pulumi.Config()
 project = gcp_config.require("project")
 region = gcp_config.require("region")
 postgres_password = runtime_config.require_secret("postgresPassword")
+deploy_stack_name = runtime_config.require("deployStack")
+composer_enabled = runtime_config.get_bool("composerEnabled") or False
+
+deploy_stack = pulumi.StackReference(deploy_stack_name)
+composer_service_account_email = deploy_stack.require_output(
+    "composerServiceAccountEmail"
+)
 
 source_profile_id = "oei-postgres-source-dev"
 destination_profile_id = "oei-bigquery-destination-dev"
@@ -108,6 +115,42 @@ orders_stream = gcp.datastream.Stream(
         ignore_changes=["desiredState"],
     ),
 )
+
+composer_environment = None
+
+if composer_enabled:
+    composer_environment = gcp.composer.Environment(
+        "oei-composer-dev",
+        name="oei-composer-dev",
+        project=project,
+        region=region,
+        labels={
+            "environment": "dev",
+            "purpose": "oei-lab",
+        },
+        config={
+            "environment_size": "ENVIRONMENT_SIZE_SMALL",
+            "node_config": {
+                "service_account": composer_service_account_email,
+            },
+            "software_config": {
+                "image_version": (
+                    "composer-3-airflow-2.11.1-build.17"
+                ),
+            },
+        },
+        # Composer cannot be paused. It is intentionally removable when
+        # composerEnabled is set to false to control lab costs.
+        opts=pulumi.ResourceOptions(
+            protect=False,
+            retain_on_delete=False,
+        ),
+    )
+
+    pulumi.export(
+        "composerEnvironmentName",
+        composer_environment.name,
+    )
 
 pulumi.export(
     "sourceConnectionProfileName",
