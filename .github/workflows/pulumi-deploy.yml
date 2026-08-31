@@ -28,8 +28,8 @@ concurrency:
 jobs:
   deploy:
     name: Deploy ${{ inputs.target }}
-    runs-on: ubuntu-slim
-    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Validate deployment request
@@ -106,6 +106,9 @@ jobs:
           service_account: >-
             oei-github-deploy@oei-data-platform-lab-dev.iam.gserviceaccount.com
 
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+
       - name: Apply Pulumi stack
         uses: pulumi/actions@8e5e406f4007fca908480587cb9893c07090f58d # v7
         with:
@@ -120,3 +123,56 @@ jobs:
           suppress-outputs: true
           suppress-progress: true
           color: never
+
+      - name: Deploy Composer DAGs
+        if: inputs.target == 'runtime'
+        env:
+          COMPOSER_ENVIRONMENT: oei-composer-dev
+          GCP_PROJECT: oei-data-platform-lab-dev
+          GCP_REGION: europe-west9
+        run: |
+          if ! environment_state="$(
+            gcloud composer environments describe "$COMPOSER_ENVIRONMENT" \
+              --location="$GCP_REGION" \
+              --project="$GCP_PROJECT" \
+              --format="value(state)" 2>&1
+          )"; then
+            if grep -q "NOT_FOUND" <<< "$environment_state"; then
+              echo "Composer is disabled; skipping DAG deployment."
+              echo "Composer is disabled; no DAGs deployed." \
+                >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+
+            echo "$environment_state"
+            exit 1
+          fi
+
+          if [[ "$environment_state" != "RUNNING" ]]; then
+            echo "Composer state is $environment_state, expected RUNNING."
+            exit 1
+          fi
+
+          mapfile -t dag_files < <(git ls-files 'dags/*.py')
+
+          if (( ${#dag_files[@]} == 0 )); then
+            echo "No tracked DAG files found."
+            exit 1
+          fi
+
+          for dag_file in "${dag_files[@]}"; do
+            echo "Deploying $dag_file"
+            gcloud composer environments storage dags import \
+              --environment="$COMPOSER_ENVIRONMENT" \
+              --location="$GCP_REGION" \
+              --project="$GCP_PROJECT" \
+              --source="$dag_file"
+          done
+
+          echo "Deployed ${#dag_files[@]} tracked DAG file(s)." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+          gcloud composer environments storage dags list \
+            --environment="$COMPOSER_ENVIRONMENT" \
+            --location="$GCP_REGION" \
+            --project="$GCP_PROJECT"

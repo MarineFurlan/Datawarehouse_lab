@@ -417,6 +417,22 @@ github_deployment_member = github_deployment_service_account.email.apply(
     lambda email: f"serviceAccount:{email}"
 )
 
+github_deployment_composer_service_account_user = (
+    gcp.serviceaccount.IAMMember(
+        "oei-github-deploy-composer-service-account-user",
+        service_account_id=composer_service_account.name,
+        role="roles/iam.serviceAccountUser",
+        member=github_deployment_member,
+        opts=pulumi.ResourceOptions(
+            protect=True,
+            depends_on=[
+                composer_service_account,
+                github_deployment_service_account,
+            ],
+        ),
+    )
+)
+
 # These permissions correspond to the resource types managed by the deploy
 # and runtime stacks. Project IAM administration makes this a privileged
 # identity, so its OIDC trust is restricted to manual runs from main.
@@ -432,6 +448,9 @@ github_deployment_roles = {
     "project-iam-admin": "roles/resourcemanager.projectIamAdmin",
     "service-usage-admin": "roles/serviceusage.serviceUsageAdmin",
     "composer-admin": "roles/composer.admin",
+    "composer-storage-admin": (
+        "roles/composer.environmentAndStorageObjectAdmin"
+    ),
 }
 
 github_deployment_role_members = {}
