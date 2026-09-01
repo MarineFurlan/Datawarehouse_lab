@@ -1,7 +1,7 @@
 with source_orders as (
 
     select *
-    from {{ source('oei_einvoice', 'orders') }}
+    from {{ source('oei_einvoice', 'public_orders') }}
 
 ),
 
