@@ -53,7 +53,7 @@ with DAG(
         get_logs=True,
         log_events_on_failure=True,
         do_xcom_push=False,
-        on_finish_action="delete_pods",
+        on_finish_action="delete_pod",
         startup_timeout_seconds=600,
         execution_timeout=timedelta(minutes=15),
     )
